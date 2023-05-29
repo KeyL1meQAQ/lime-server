@@ -5,5 +5,5 @@ set(CMAKE_CXX_STANDARD 14)
 set(CMAKE_CXX_FLAGS -pthread)
 
 add_executable(server test/main.cpp server/webserver.cpp server/webserver.h server/epoller.h server/epoller.cpp
-        pool/threadpool.h http/httpconn.h http/httpconn.cpp)
+        pool/threadpool.h http/httpconn.h http/httpconn.cpp buff/buffer.cpp buff/buffer.h)
 add_executable(client client/client.cpp)

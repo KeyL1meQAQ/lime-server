@@ -7,6 +7,7 @@
 
 #include <netinet/in.h>
 #include <atomic>
+#include "../buff/buffer.h"
 
 class HttpConn {
 public:
@@ -18,10 +19,17 @@ public:
     int GetPort() const;
     const char *GetIP() const;
     sockaddr_in GetAddr() const;
+
+    ssize_t read(int* save_error);
+    ssize_t write(int* save_error);
+
     static std::atomic<int> user_count;
+    static bool isET;
 private:
     int fd_;
     sockaddr_in addr_;
+
+    Buffer read_buffer_;
 
     bool is_close_;
 };

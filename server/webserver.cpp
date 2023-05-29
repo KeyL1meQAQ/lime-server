@@ -34,6 +34,7 @@ void WebServer::Start() {
         for (int i = 0; i < event_num; ++i) {
             int fd = epoller_->GetEventFd(i); // 获取事件对应的文件描述符
             uint32_t events = epoller_->GetEvents(i); // 获取事件类型
+            printf("fd: %d\n", fd); // 打印文件描述符
 
             if (fd == listen_fd_) { // 监听到新连接
                 DealListen_();
@@ -141,15 +142,13 @@ void WebServer::DealWrite_(HttpConn* client) {
 }
 
 void WebServer::OnRead_(HttpConn* client) {
-    char buf[1024];
-    int len = read(client->GetFd(), buf, sizeof(buf));
-    if (len == -1) {
-        perror("OnRead_");
-        exit(-1);
-    } else if (len > 0) {
-        printf("OnRead_ Buf: %s", buf);
-    } else {
-        printf("client disconnect...\n");
+    assert(client);
+    int ret = -1;
+    int read_errno = 0;
+    ret = client->read(&read_errno);
+    if (ret <= 0 && read_errno != EAGAIN) {
+        CloseConn_(client);
+        return;
     }
 }
 
@@ -157,7 +156,7 @@ void WebServer::OnWrite_(HttpConn *client) {  }
 
 void WebServer::InitEventMode_(int trig_mode) {
     listen_event_ = EPOLLRDHUP;
-    conn_event_ = EPOLLONESHOT | EPOLLRDHUP; // 注册连接事件时，设置为EPOLLONESHOT，防止多个线程处理同一个连接
+//    conn_event_ = EPOLLONESHOT | EPOLLRDHUP; // 注册连接事件时，设置为EPOLLONESHOT，防止多个线程处理同一个连接
     switch ((trig_mode)) {
         case 0:
             break;
@@ -172,6 +171,7 @@ void WebServer::InitEventMode_(int trig_mode) {
             conn_event_ |= EPOLLET;
             break;
     }
+    HttpConn::isET = (conn_event_ & EPOLLET);
 }
 
 int WebServer::SetFdNonblock(int fd) {

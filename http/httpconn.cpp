@@ -9,6 +9,8 @@
 
 std::atomic<int> HttpConn::user_count;
 
+bool HttpConn::isET = true;
+
 HttpConn::HttpConn() {
     fd_ = -1;
     addr_ = {0};
@@ -50,6 +52,18 @@ const char *HttpConn::GetIP() const {
 
 sockaddr_in HttpConn::GetAddr() const {
     return addr_;
+}
+
+ssize_t HttpConn::read(int *save_error) {
+    ssize_t len = 0;
+    do {
+        ssize_t tmp = read_buffer_.ReadFd_(fd_, save_error);
+        if (tmp <= 0) {
+            break;
+        }
+        len += tmp;
+    } while (isET);
+    return len;
 }
 
 
