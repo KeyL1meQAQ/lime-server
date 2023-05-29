@@ -13,8 +13,8 @@
 #include <cassert>
 #include "webserver.h"
 
-WebServer::WebServer(int port, int trig_mode, int timeout_ms): port_(port), timeout_ms_(timeout_ms),
-epoller_(new Epoller()), is_close_(false) {
+WebServer::WebServer(int port, int trig_mode, int timeout_ms, int thread_num): port_(port), timeout_ms_(timeout_ms),
+epoller_(new Epoller()), is_close_(false), threadpool_(new ThreadPool(thread_num)) {
     InitEventMode_(trig_mode);
     if (!InitSocket_()) {
         is_close_ = true;
@@ -34,20 +34,38 @@ void WebServer::Start() {
         for (int i = 0; i < event_num; ++i) {
             int fd = epoller_->GetEventFd(i); // 获取事件对应的文件描述符
             uint32_t events = epoller_->GetEvents(i); // 获取事件类型
+
             if (fd == listen_fd_) { // 监听到新连接
                 DealListen_();
             } else if (events & (EPOLLRDHUP | EPOLLHUP | EPOLLERR)) {
                 // 关闭连接
-                CloseConn_();
+                assert(users_.count(fd) > 0);
+                CloseConn_(&users_[fd]);
             } else if (events & EPOLLIN) { // 监听到读事件
-                DealRead_();
+                assert(users_.count(fd) > 0);
+                DealRead_(&users_[fd]); // 交给子线程执行
             } else if (events & EPOLLOUT) { // 监听到写事件
-                DealWrite_();
+                assert(users_.count(fd) > 0);
+                DealWrite_(&users_[fd]); // 交给子线程执行
             } else {
                 perror("Unexpected event");
             }
         }
     }
+}
+
+void WebServer::CloseConn_(HttpConn* client) {
+    assert(client);
+    printf("Client[%d] quit!\n", client->GetFd());
+    epoller_->DelFd(client->GetFd());
+    client->Close();
+}
+
+void WebServer::AddClient(int fd, sockaddr_in addr) {
+    assert(fd > 0);
+    users_[fd].Init(fd, addr);
+    SetFdNonblock(fd);
+    epoller_->AddFd(fd, conn_event_ | EPOLLIN);
 }
 
 bool WebServer::InitSocket_() {
@@ -108,11 +126,34 @@ void WebServer::DealListen_() {
         unsigned short c_port = ntohs(c_addr.sin_port);
         // 打印客户端信息
         printf("client ip: %s, port: %d\n", c_ip, c_port);
-        SetFdNonblock(cfd); // 设置为非阻塞
-        // 将cfd注册到epoller中, 并设置为ET模式
-        epoller_->AddFd(cfd, EPOLLIN | EPOLLET);
+        AddClient(cfd, c_addr);
     } while (listen_event_ & EPOLLET);
 }
+
+void WebServer::DealRead_(HttpConn* client) {
+    assert(client);
+    threadpool_->AddTask(std::bind(&WebServer::OnRead_, this, client));
+}
+
+void WebServer::DealWrite_(HttpConn* client) {
+    assert(client);
+    threadpool_->AddTask(std::bind(&WebServer::OnWrite_, this, client));
+}
+
+void WebServer::OnRead_(HttpConn* client) {
+    char buf[1024];
+    int len = read(client->GetFd(), buf, sizeof(buf));
+    if (len == -1) {
+        perror("OnRead_");
+        exit(-1);
+    } else if (len > 0) {
+        printf("OnRead_ Buf: %s", buf);
+    } else {
+        printf("client disconnect...\n");
+    }
+}
+
+void WebServer::OnWrite_(HttpConn *client) {  }
 
 void WebServer::InitEventMode_(int trig_mode) {
     listen_event_ = EPOLLRDHUP;
